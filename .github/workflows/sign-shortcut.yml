@@ -29,9 +29,10 @@ jobs:
           python3 generate_shortcut.py
           ls -la AI_OmniSolver_Unsigned.shortcut
 
-      - name: Validate Shortcut Plist Schema & Integrity
+      - name: Validate Shortcut Plist & 5 Anti-Cheat Scenarios
         run: |
           python3 test_shortcut.py
+          python3 test_anti_cheat.py
 
       - name: Sign Shortcut with Official macOS CLI
         run: |
@@ -44,14 +45,3 @@ jobs:
           name: AI_OmniSolver-Signed-Shortcut
           path: AI_OmniSolver.shortcut
           retention-days: 90
-
-      - name: Create or Update GitHub Release with Signed Shortcut
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG_NAME="v1.0.0"
-          gh release view "$TAG_NAME" || gh release create "$TAG_NAME" \
-            AI_OmniSolver.shortcut \
-            --title "AI Omni-Solver v1.0.0 (Apple Signed)" \
-            --notes "⚡ Phím tắt iOS AI Omni-Solver đã ký chứng chỉ Apple chính chủ. Bấm tải trực tiếp và cài đặt trên iPhone iOS 16/17/18!" \
-            --latest
