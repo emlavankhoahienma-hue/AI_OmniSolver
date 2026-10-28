@@ -1,0 +1,57 @@
+name: Sign AI Omni-Solver Shortcut
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-sign:
+    name: Build & Sign with Apple Shortcuts CLI
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate Unsigned Shortcut
+        run: |
+          python3 generate_shortcut.py
+          ls -la AI_OmniSolver_Unsigned.shortcut
+
+      - name: Validate Shortcut Plist Schema & Integrity
+        run: |
+          python3 test_shortcut.py
+
+      - name: Sign Shortcut with Official macOS CLI
+        run: |
+          shortcuts sign --mode anyone --input AI_OmniSolver_Unsigned.shortcut --output AI_OmniSolver.shortcut
+          ls -la AI_OmniSolver.shortcut
+
+      - name: Upload Signed Shortcut Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI_OmniSolver-Signed-Shortcut
+          path: AI_OmniSolver.shortcut
+          retention-days: 90
+
+      - name: Create or Update GitHub Release with Signed Shortcut
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="v1.0.0"
+          gh release view "$TAG_NAME" || gh release create "$TAG_NAME" \
+            AI_OmniSolver.shortcut \
+            --title "AI Omni-Solver v1.0.0 (Apple Signed)" \
+            --notes "⚡ Phím tắt iOS AI Omni-Solver đã ký chứng chỉ Apple chính chủ. Bấm tải trực tiếp và cài đặt trên iPhone iOS 16/17/18!" \
+            --latest
