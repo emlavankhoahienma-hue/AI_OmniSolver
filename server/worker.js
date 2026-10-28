@@ -76,7 +76,7 @@ async function verifyKey(keyStr, devId) {
     const hash = await crypto.subtle.digest("SHA-256", new Uint8Array([...secretBytes, ...encoder.encode(":KEYSTREAM")]));
     const keystream = new Uint8Array(hash);
     const payloadBytes = new Uint8Array(obfBytes.length);
-    for (let i = 0; i < obfBytes.length; i++) payloadBytes[i] = obfBytes[i] ^ keystream[i % keystream.length];
+    for (let i = 0; i < payloadBytes.length; i++) payloadBytes[i] = obfBytes[i] ^ keystream[i % keystream.length];
     const data = JSON.parse(new TextDecoder().decode(payloadBytes));
 
     const now = Math.floor(Date.now() / 1000);
@@ -104,7 +104,7 @@ async function solveWithAI(apiKey, ocrText, imageBase64) {
       const d = await res.json();
       const ans = d.choices?.[0]?.message?.content;
       if (ans) return clean(ans);
-    }} catch (e) {}
+    } catch (e) {}
   }
 
   // OpenRouter if sk-or-...
@@ -118,7 +118,7 @@ async function solveWithAI(apiKey, ocrText, imageBase64) {
       const d = await res.json();
       const ans = d.choices?.[0]?.message?.content;
       if (ans) return clean(ans);
-    }} catch (e) {}
+    } catch (e) {}
   }
 
   // Groq if gsk_...
@@ -132,7 +132,7 @@ async function solveWithAI(apiKey, ocrText, imageBase64) {
       const d = await res.json();
       const ans = d.choices?.[0]?.message?.content;
       if (ans) return clean(ans);
-    }} catch (e) {}
+    } catch (e) {}
   }
 
   // Fallback: Pollinations AI (Zero Key Needed)
