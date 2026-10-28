@@ -6,7 +6,7 @@ const SECRET_HEX = "8f3d1a4c9b2e7f0156d8c4a3b7e9f2014d5e6a7b8c9d0e1f2a3b4c5d6e7f
 const ZALO = "0344197212";
 const ERR_MSG = "⚠️ Key chưa kích hoạt hoặc đã hết hạn! Liên hệ Admin - Zalo: 0344197212";
 
-// Dán API Key AI cố định của bạn vào đây (Nếu muốn khách không cần nhập API Key AI):
+// Dán API Key AI của bạn vào đây trên Cloudflare (Gemini AQ... hoặc AIza...):
 const DEFAULT_AI_KEY = ""; 
 
 export default {
@@ -44,14 +44,7 @@ export default {
           });
         }
 
-        // 2. Kiểm tra nếu chưa có API Key của AI
-        if (!apiKey) {
-          return new Response("⚠️ Chưa có API Key AI! Hãy dán key Gemini (AIza...) hoặc Groq (gsk_...) vào Phím tắt hoặc Worker.", {
-            headers: { "Content-Type": "text/plain; charset=utf-8" }
-          });
-        }
-
-        // 3. Giải đề qua Đa AI
+        // 2. Giải đề qua Đa AI
         const answer = await solveWithAI(apiKey, ocrText, imageBase64);
         return new Response(answer, {
           headers: { "Content-Type": "text/plain; charset=utf-8" }
@@ -97,88 +90,97 @@ async function verifyKey(keyStr, devId) {
 }
 
 async function solveWithAI(apiKey, ocrText, imageBase64) {
-  const prompt = `You are an elite quiz solver. Solve all questions in the text/image with 100% accuracy.
+  const prompt = `You are an elite quiz solver. Solve all questions in the text with 100% accuracy.
 OUTPUT FORMAT: Output ONLY the compact answers (e.g., "9B 10D 11A 12B 13A 14C 15B 16B 17D 18C 19C 20B") or short keyword/number.
-Do NOT explain, do NOT write markdown or pleasantries. Output final answers only.`;
+Do NOT explain, do NOT write markdown or preface. Output final answers only.`;
 
-  // 1. Google Gemini (Khuyên dùng - Cực mạnh và miễn phí)
-  if (apiKey.startsWith("AIza")) {
-    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "gemini-2.5-flash",
-        messages: [
-          { role: "system", content: prompt },
-          { role: "user", content: `Đề bài trích xuất từ màn hình:\n${ocrText}\n\nGiải đề và ghi đáp án:` }
-        ],
-        temperature: 0.1
-      }),
-      signal: AbortSignal.timeout(9000)
-    });
-    const d = await res.json();
-    return clean(d.choices?.[0]?.message?.content || "Không giải được");
+  // 1. Google Gemini (Hỗ trợ cả Key dạng mới AQ... và AIza...)
+  if (apiKey.startsWith("AIza") || apiKey.startsWith("AQ.") || apiKey.startsWith("AI")) {
+    const models = ["gemini-2.5-flash", "gemini-3.8-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+    for (const m of models) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: `${prompt}\n\nĐề bài thi:\n${ocrText}` }]
+            }]
+          })
+        });
+        const data = await res.json();
+        const ans = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (ans) return clean(ans);
+      } catch (e) {}
+    }
   }
 
   // 2. Groq (Siêu tốc 0.3s)
   if (apiKey.startsWith("gsk_")) {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: prompt },
-          { role: "user", content: `Đề bài:\n${ocrText}\n\nGiải ngay:` }
-        ],
-        temperature: 0.1
-      }),
-      signal: AbortSignal.timeout(9000)
-    });
-    const d = await res.json();
-    return clean(d.choices?.[0]?.message?.content || "Không giải được");
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            { role: "system", content: prompt },
+            { role: "user", content: `Đề bài:\n${ocrText}\n\nGiải ngay:` }
+          ],
+          temperature: 0.1
+        })
+      });
+      const d = await res.json();
+      const ans = d.choices?.[0]?.message?.content;
+      if (ans) return clean(ans);
+    } catch (e) {}
   }
 
   // 3. OpenRouter
   if (apiKey.startsWith("sk-or-")) {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: prompt },
-          { role: "user", content: `Đề bài:\n${ocrText}` }
-        ]
-      }),
-      signal: AbortSignal.timeout(9000)
-    });
-    const d = await res.json();
-    return clean(d.choices?.[0]?.message?.content || "Không giải được");
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: prompt },
+            { role: "user", content: `Đề bài:\n${ocrText}` }
+          ]
+        })
+      });
+      const d = await res.json();
+      const ans = d.choices?.[0]?.message?.content;
+      if (ans) return clean(ans);
+    } catch (e) {}
   }
 
   // 4. OpenAI / DeepSeek (sk-...)
   if (apiKey.startsWith("sk-")) {
-    const isDeepSeek = apiKey.length === 35 || apiKey.includes("deepseek");
-    const endpoint = isDeepSeek ? "https://api.deepseek.com/chat/completions" : "https://api.openai.com/v1/chat/completions";
-    const model = isDeepSeek ? "deepseek-chat" : "gpt-4o-mini";
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: "system", content: prompt },
-          { role: "user", content: `Đề bài:\n${ocrText}` }
-        ]
-      }),
-      signal: AbortSignal.timeout(9000)
-    });
-    const d = await res.json();
-    return clean(d.choices?.[0]?.message?.content || "Không giải được");
+    try {
+      const isDeepSeek = apiKey.length === 35 || apiKey.includes("deepseek");
+      const endpoint = isDeepSeek ? "https://api.deepseek.com/chat/completions" : "https://api.openai.com/v1/chat/completions";
+      const model = isDeepSeek ? "deepseek-chat" : "gpt-4o-mini";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { role: "system", content: prompt },
+            { role: "user", content: `Đề bài:\n${ocrText}` }
+          ]
+        })
+      });
+      const d = await res.json();
+      const ans = d.choices?.[0]?.message?.content;
+      if (ans) return clean(ans);
+    } catch (e) {}
   }
 
-  return "⚠️ Định dạng API Key không hợp lệ (Phải bắt đầu bằng AIza..., gsk_..., hoặc sk-...)";
+  return "⚠️ Không kết nối được với AI. Hãy kiểm tra lại API Key!";
 }
 
 function clean(txt) {
