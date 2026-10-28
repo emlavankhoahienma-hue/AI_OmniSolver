@@ -15,9 +15,9 @@ def generate_key(duration_seconds, device_id="ANY", key_id=None):
     
     keystream = hashlib.sha256(SECRET_BYTES + b":KEYSTREAM").digest()
     obf_payload = bytes(b ^ keystream[i % len(keystream)] for i, b in enumerate(payload_bytes))
-    p_b64 = base64.urlsafe_b64encode(obf_payload).decode('utf-8').rstrip('=')
-    sig = hmac.new(SECRET_BYTES, p_b64.encode('utf-8'), hashlib.sha256).hexdigest()[:16]
-    return f"OMNI-{p_b64}-{sig}", exp, payload_obj
+    p_hex = obf_payload.hex()
+    sig = hmac.new(SECRET_BYTES, p_hex.encode('utf-8'), hashlib.sha256).hexdigest()[:16]
+    return f"OMNI-{p_hex}-{sig}", exp, payload_obj
 
 def verify_and_decrypt(key_str, current_time, device_id="ANY", network_time=None, last_max_time=0, revoked_list=None):
     if not key_str or not key_str.startswith("OMNI-"):
@@ -27,17 +27,15 @@ def verify_and_decrypt(key_str, current_time, device_id="ANY", network_time=None
     if len(parts) != 3:
         return False, f"⚠️ Key chưa kích hoạt, đã hết hạn hoặc không hợp lệ! Liên hệ Admin để mua Key - Zalo: {ZALO_CONTACT}", None
     
-    _, p_b64, sig = parts
+    _, p_hex, sig = parts
     
     # Layer 1: HMAC-SHA256 Anti-Tamper check
-    expected_sig = hmac.new(SECRET_BYTES, p_b64.encode('utf-8'), hashlib.sha256).hexdigest()[:16]
+    expected_sig = hmac.new(SECRET_BYTES, p_hex.encode('utf-8'), hashlib.sha256).hexdigest()[:16]
     if not hmac.compare_digest(sig, expected_sig):
         return False, f"⚠️ Key chưa kích hoạt, đã hết hạn hoặc không hợp lệ! Liên hệ Admin để mua Key - Zalo: {ZALO_CONTACT}", None
     
     try:
-        rem = len(p_b64) % 4
-        padded_b64 = p_b64 + ('=' * (4 - rem) if rem else '')
-        obf_payload = base64.urlsafe_b64decode(padded_b64)
+        obf_payload = bytes.fromhex(p_hex)
         keystream = hashlib.sha256(SECRET_BYTES + b":KEYSTREAM").digest()
         payload_bytes = bytes(b ^ keystream[i % len(keystream)] for i, b in enumerate(obf_payload))
         data = json.loads(payload_bytes.decode('utf-8'))
