@@ -1,8 +1,9 @@
 /**
- * AI Omni-Solver - 1-Step Unified Web-Gated Solver (v3.0 - Anti-Spam & Multi-Tenant)
- * - Yêu cầu người dùng tự nhập API Key AI (Bảo vệ quota của Admin 100%)
- * - Chống lộ link & chống spam (Rate-limit 10 req/phút, bắt buộc License Key hợp lệ)
- * - Quản lý thu hồi / xóa Key từ xa (Remote Revocation API)
+ * AI Omni-Solver - 1-Step Unified Web-Gated Solver (v3.5 - Omni-Question Format)
+ * Hỗ trợ toàn diện mọi dạng đề:
+ * 1. Trắc nghiệm 4 lựa chọn (A, B, C, D)
+ * 2. Trắc nghiệm Đúng / Sai (Format thi tốt nghiệp mới: aĐ bS cĐ dS)
+ * 3. Điền đáp số / Trả lời ngắn / Tính toán
  */
 
 const SECRET_HEX = "8f3d1a4c9b2e7f0156d8c4a3b7e9f2014d5e6a7b8c9d0e1f2a3b4c5d6e7f8a9b";
@@ -12,14 +13,13 @@ const ERR_MSG = "⚠️ Key chưa kích hoạt, đã hết hạn hoặc bị thu
 // Bộ nhớ đệm danh sách Key bị Admin thu hồi
 let REVOKED_KEY_IDS = new Set(["REVOKED_SAMPLE_01"]);
 
-// Bộ nhớ chống spam (Rate limit theo IP / License Key: Tối đa 10 req/phút)
+// Bộ nhớ chống spam (Rate limit theo IP: Tối đa 10 req/phút)
 const RATE_LIMIT_MAP = new Map();
 
 export default {
   async fetch(request, env, ctx) {
     const clientIP = request.headers.get("CF-Connecting-IP") || "unknown";
 
-    // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, {
         headers: {
@@ -32,7 +32,7 @@ export default {
 
     const url = new URL(request.url);
 
-    // 1. API ĐỒNG BỘ DANH SÁCH THU HỒI TỪ TRANG ADMIN (Bảo mật bằng SECRET_HEX)
+    // 1. API ĐỒNG BỘ DANH SÁCH THU HỒI TỪ TRANG ADMIN
     if (request.method === "POST" && url.pathname === "/admin/sync-revoked") {
       const secret = request.headers.get("X-Admin-Secret") || "";
       if (secret !== SECRET_HEX) {
@@ -51,14 +51,14 @@ export default {
     }
 
     if (request.method === "GET") {
-      return new Response("🛡️ AI Omni-Solver Gateway Active (Protected)", {
+      return new Response("🛡️ AI Omni-Solver Gateway v3.5 Active", {
         headers: { "Content-Type": "text/plain; charset=utf-8" }
       });
     }
 
     if (request.method === "POST") {
       try {
-        // --- CHỐNG SPAM: RATE LIMIT 10 REQUEST / PHÚT ---
+        // CHỐNG SPAM: RATE LIMIT 10 REQUEST / PHÚT
         const now = Date.now();
         const clientHistory = RATE_LIMIT_MAP.get(clientIP) || [];
         const recentRequests = clientHistory.filter(t => now - t < 60000);
@@ -72,11 +72,11 @@ export default {
 
         const body = await request.json().catch(() => ({}));
         const licKey = (body.license_key || "").trim();
-        const apiKey = (body.api_key || "").trim(); // NGƯỜI DÙNG TỰ NHẬP API KEY
+        const apiKey = (body.api_key || "").trim();
         const ocrText = (body.ocr_text || "").trim();
         const devId = (body.device_id || "ANY").trim();
 
-        // 1. KIỂM TRA 5 LỚP LICENSE KEY (BẮT BUỘC CÓ KEY MỚI ĐƯỢC CHẠY TIẾP)
+        // 1. KIỂM TRA 5 LỚP LICENSE KEY
         const auth = await verifyKey(licKey, devId);
         if (!auth.valid) {
           return new Response(auth.message, {
@@ -84,14 +84,14 @@ export default {
           });
         }
 
-        // 2. YÊU CẦU NGƯỜI DÙNG TỰ NHẬP API KEY (CHỐNG LÀM HAO HỤT QUOTA ADMIN)
+        // 2. YÊU CẦU NGƯỜI DÙNG TỰ NHẬP API KEY
         if (!apiKey) {
-          return new Response("⚠️ Bạn chưa nhập API Key AI! Hãy dán mã Groq (gsk_...) hoặc Gemini (AIza.../AQ...) vào cài đặt Phím tắt.", {
+          return new Response("⚠️ Bạn chưa nhập API Key AI! Hãy dán mã Groq (gsk_...) vào cài đặt Phím tắt.", {
             headers: { "Content-Type": "text/plain; charset=utf-8" }
           });
         }
 
-        // 3. GIẢI ĐỀ BẰNG CHÍNH API KEY CỦA NGƯỜI DÙNG
+        // 3. GIẢI MỌI DẠNG ĐỀ QUA AI SIÊU TỐC
         const answer = await solveWithAI(apiKey, ocrText);
         return new Response(answer, {
           headers: { "Content-Type": "text/plain; charset=utf-8" }
@@ -113,7 +113,6 @@ async function verifyKey(keyStr, devId) {
   if (parts.length !== 3) return { valid: false, message: ERR_MSG };
   const [_, pHex, sig] = parts;
 
-  // Layer 1: Chữ ký HMAC-SHA256 (Chống làm giả key)
   const secretBytes = hexToBytes(SECRET_HEX);
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", secretBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -130,16 +129,13 @@ async function verifyKey(keyStr, devId) {
     const data = JSON.parse(new TextDecoder().decode(payloadBytes));
 
     const kid = data.id || "";
-    // Layer 5: Kiểm tra danh sách Admin thu hồi từ xa
     if (REVOKED_KEY_IDS.has(kid)) {
       return { valid: false, message: `⚠️ Key [${kid}] đã bị Admin thu hồi vĩnh viễn! Liên hệ Zalo: ${ZALO}` };
     }
 
-    // Layer 3: Kiểm tra thời hạn
     const now = Math.floor(Date.now() / 1000);
     if (now > data.exp) return { valid: false, message: ERR_MSG };
 
-    // Layer 4: Khóa theo thiết bị
     if (data.dev !== "ANY" && devId !== "ANY" && data.dev !== devId) {
       return { valid: false, message: `⚠️ Key này bị khóa vào máy khác (${data.dev})! Liên hệ Zalo: ${ZALO}` };
     }
@@ -151,11 +147,15 @@ async function verifyKey(keyStr, devId) {
 }
 
 async function solveWithAI(apiKey, ocrText) {
-  const prompt = `You are an elite instant exam solver. Solve all questions in the text with 100% accuracy.
-OUTPUT FORMAT RULE: Output ONLY the final answers (e.g. 9B 10D 11A 12B 13A 14C 15B 16B 17D 18C 19C 20B) or short keyword/number.
-Do NOT explain, do NOT write markdown or pleasantries. Output final answers only.`;
+  const prompt = `Bạn là trợ lý giải đề thi siêu tốc chuyên nghiệp. Giải toàn bộ câu hỏi với độ chính xác 100%.
+QUY TẮC ĐỊNH DẠNG ĐÁP ÁN (BẮT BUỘC SIÊU GỌN TRÊN 1 DÒNG ĐỂ HIỆN THÔNG BÁO IPHONE):
+1. Trắc nghiệm ABCD: Ghi số câu + chữ cái (VD: 1B 2C 3A 4D)
+2. Trắc nghiệm Đúng/Sai (dạng a,b,c,d): Ghi "SốCâu: aĐ bS cĐ dS" (VD: 1: aĐ bS cĐ dS | 2: aS bĐ cS dĐ)
+3. Trả lời ngắn / Điền số / Điền từ: Ghi "SốCâu: ĐápSố/TừKhóa" (VD: 1: 15.2 | 2: 120 | 3: hydrogen)
+4. Nếu đề gồm nhiều phần kết hợp: Phân tách bằng dấu gạch dọc | (VD: [TN]: 1A 2B | [Đ/S]: 1: aĐ bS cĐ dS | [TL]: 1: 4.5)
+TUYỆT ĐỐI KHÔNG giải thích, không viết markdown, chỉ xuất chuỗi đáp án cuối cùng!`;
 
-  // 1. Groq (Khuyên dùng - Siêu tốc 0.2s với Qwen 3.8 / GPT-OSS)
+  // 1. Groq (Chạy Qwen 3.8 / GPT-OSS 120B siêu tốc 0.2s)
   if (apiKey.startsWith("gsk_")) {
     const groqModels = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"];
     for (const m of groqModels) {
@@ -171,7 +171,7 @@ Do NOT explain, do NOT write markdown or pleasantries. Output final answers only
             model: m,
             messages: [
               { role: "system", content: prompt },
-              { role: "user", content: `Đề bài thi:\n${ocrText}\n\nGiải ngay:` }
+              { role: "user", content: `Đề bài thi:\n${ocrText}\n\nGiải và xuất đáp án:` }
             ],
             temperature: 0.1
           })
@@ -183,7 +183,7 @@ Do NOT explain, do NOT write markdown or pleasantries. Output final answers only
     }
   }
 
-  // 2. Google Gemini (Nếu khách nhập key AIza... hoặc AQ...)
+  // 2. Google Gemini (Nếu dùng key AIza... hoặc AQ...)
   if (apiKey.startsWith("AIza") || apiKey.startsWith("AQ.") || apiKey.startsWith("AI")) {
     const geminiModels = ["gemma-4-26b-a4b-it", "gemini-flash-latest", "gemini-2.5-flash"];
     for (const m of geminiModels) {
@@ -218,7 +218,7 @@ Do NOT explain, do NOT write markdown or pleasantries. Output final answers only
           model: model,
           messages: [
             { role: "system", content: prompt },
-            { role: "user", content: `Đề bài:\n${ocrText}` }
+            { role: "user", content: `Đề bài thi:\n${ocrText}\n\nGiải và xuất đáp án:` }
           ]
         })
       });
@@ -232,7 +232,11 @@ Do NOT explain, do NOT write markdown or pleasantries. Output final answers only
 }
 
 function clean(txt) {
-  return txt.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/```[a-z]*\n?|```/gi, "").trim();
+  return txt
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/```[a-z]*\n?|```/gi, "")
+    .replace(/^(Đáp án|Kết quả|Answer):\s*/im, "")
+    .trim();
 }
 
 function hexToBytes(hex) {
